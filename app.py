@@ -306,6 +306,14 @@ st.subheader("📊 Recession Probability Forecast")
 st.metric("Current Probability", f"{latest_prob:.1%}")
 st.caption(f"Month-to-date as of {latest_date.strftime('%Y-%m-%d')}")
 
+# Add recession definition with NBER reference
+st.markdown("""
+> **Definition:** According to the [National Bureau of Economic Research (NBER)](https://www.nber.org/research/business-cycle-dating), 
+a recession is defined as a significant decline in economic activity spread across the economy, 
+lasting more than a few months, normally visible in real GDP, real income, employment, industrial production, 
+and wholesale-retail sales. This forecast estimates the probability of such a decline beginning within the next 12 months.
+""")
+
 # --- Forecast Chart (2 years) ---
 st.markdown("### 📈 Recession Probability Over Time")
 df_recent = df_all[df_all["date"] >= start_date]
