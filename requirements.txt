@@ -5,3 +5,5 @@ requests
 plotly
 scikit-learn
 lightgbm
+feedparser
+beautifulsoup4
