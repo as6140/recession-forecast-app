@@ -216,10 +216,14 @@ def get_latest_value(df, target_date):
     return None
 
 # Calculate date range
-end_date = pd.Timestamp.now().normalize().replace(day=1) - pd.DateOffset(days=1)  # Last day of previous month
-start_date = end_date - pd.DateOffset(months=24)
+end_date = pd.Timestamp.now().normalize() - pd.DateOffset(days=1)  # Yesterday
+last_month_end = end_date.replace(day=1) - pd.DateOffset(days=1)  # Last day of previous month
+start_date = last_month_end - pd.DateOffset(months=23)  # 24 months including current
 
-df_all = pd.DataFrame(pd.date_range(start=start_date, end=end_date, freq='ME'), columns=['date'])  # Changed from 'M' to 'ME'
+# Create date range with month-ends plus yesterday
+month_ends = pd.date_range(start=start_date, end=last_month_end, freq='ME')
+df_all = pd.DataFrame(month_ends.append(pd.Index([end_date])), columns=['date'])
+
 df_raw = {}  # Initialize df_raw dictionary
 indicators = []
 weights = {}
@@ -302,12 +306,41 @@ st.metric("Current Probability", f"{latest_prob:.1%}")
 
 # --- Forecast Chart (2 years) ---
 st.markdown("### 📈 Recession Probability Over Time")
-df_recent = df_all[df_all["date"] >= (df_all["date"].max() - pd.DateOffset(months=24))]
+df_recent = df_all[df_all["date"] >= start_date]
 fig_prob = px.line(df_recent, x="date", y="forecast", title="Forecast (Last 2+ Years)",
                    labels={"forecast": "Probability"})
 for r in RECESSIONS:
     fig_prob.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.1, line_width=0)
 st.plotly_chart(fig_prob, use_container_width=True)
+
+# --- Breakdown Chart ---
+st.subheader("📊 Contribution by Category")
+latest = df_all.iloc[-1]
+breakdown = []
+for ind in indicators:
+    name = ind["name"]
+    if name in latest:  # Add check to ensure column exists
+        raw_score = score_indicator(name, latest[name])
+        wt = weights[name] / 100
+        breakdown.append({
+            "Category": name,
+            "Score": raw_score,
+            "Weight": wt,
+            "Weighted Score": raw_score * wt
+        })
+df_breakdown = pd.DataFrame(breakdown)
+fig_breakdown = px.bar(df_breakdown,
+                      x="Category", y="Weighted Score",
+                      title="Contribution to Overall Probability",
+                      labels={"Weighted Score": "Contribution to Probability"},
+                      hover_data=["Score", "Weight"])
+fig_breakdown.update_traces(hovertemplate=(
+    "<b>%{x}</b><br>" +
+    "Raw Score: %{customdata[0]:.1%}<br>" +
+    "Weight: %{customdata[1]:.0%}<br>" +
+    "Contribution: %{y:.1%}"
+))
+st.plotly_chart(fig_breakdown, use_container_width=True)
 
 # --- Component Charts + Interpretations ---
 st.subheader("📊 Indicator Trends & Interpretations")
@@ -393,26 +426,6 @@ for ind in indicators:
     **Trend Analysis ({ind['trend_window']}):** {trend_text}
     """)
     st.markdown("---")  # Add separator between indicators
-
-# --- Breakdown Chart ---
-st.subheader("📊 Contribution by Category")
-latest = df_all.iloc[-1]
-breakdown = []
-for ind in indicators:
-    name = ind["name"]
-    if name in latest:  # Add check to ensure column exists
-        raw_score = score_indicator(name, latest[name])
-        wt = weights[name] / 100
-        breakdown.append({
-            "Category": name,
-            "Score": raw_score,
-            "Weight": wt,
-            "Weighted Score": raw_score * wt
-        })
-df_breakdown = pd.DataFrame(breakdown)
-fig_bar = px.bar(df_breakdown, x="Category", y="Weighted Score", color="Weighted Score",
-                 color_continuous_scale="RdYlGn_r", title="Current Weighted Score by Category")
-st.plotly_chart(fig_bar, use_container_width=True)
 
 # --- CSV Preview + Download ---
 st.subheader("📥 Forecast Data")
