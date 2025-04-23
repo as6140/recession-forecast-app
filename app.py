@@ -31,18 +31,17 @@ RECESSIONS = [("2001-03-01", "2001-11-30"), ("2007-12-01", "2009-06-30"), ("2020
 # --- Category Definitions ---
 categories = [
     {"name": "Yield Curve", "series_id": "T10Y3M", "unit": "%", "default_weight": 25,
-     "description": "The yield curve measures the difference between long-term and short-term interest rates. "
-                    "An inverted curve (negative value) often signals a coming recession."},
+     "description": "An inverted curve (10Y < 3M) often signals a coming recession."},
     {"name": "Unemployment Rate", "series_id": "UNRATE", "unit": "%", "default_weight": 15,
-     "description": "The share of the labor force that is jobless. Rising unemployment tends to reflect economic weakening."},
+     "description": "Rising unemployment tends to reflect economic weakening."},
     {"name": "Leading Index", "series_id": "USSLIND", "unit": "index", "default_weight": 20,
-     "description": "A composite of leading indicators compiled by the Conference Board. Persistent declines signal potential recessions."},
+     "description": "Persistent declines in the LEI often precede recessions."},
     {"name": "Consumer Sentiment", "series_id": "UMCSENT", "unit": "index", "default_weight": 15,
-     "description": "Reflects household confidence in the economy. Sharp drops often precede downturns."},
+     "description": "Low household confidence can signal an economic downturn."},
     {"name": "Fed Funds Rate", "series_id": "FEDFUNDS", "unit": "%", "default_weight": 15,
-     "description": "The Federal Reserve's main policy rate. High rates can tighten financial conditions and slow growth."},
+     "description": "High interest rates can slow growth and trigger contraction."},
     {"name": "S&P 500", "series_id": "SP500", "unit": "points", "default_weight": 10,
-     "description": "The US stock market index. Falling prices or volatility can reflect economic pessimism."}
+     "description": "Sharp declines in equities can signal deteriorating expectations."}
 ]
 
 # --- Weight Sliders ---
@@ -57,8 +56,8 @@ if total_weight != 100:
     st.sidebar.error(f"Weights must total 100% (currently {total_weight}%)")
     st.stop()
 
-# --- Fetch Data ---
-def fetch_series(series_id, start="2018-01-01"):
+# --- Data Fetching ---
+def fetch_series(series_id, start="2000-01-01"):
     url = f"{FRED_BASE}?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&observation_start={start}"
     r = requests.get(url).json()
     return pd.DataFrame([
@@ -66,6 +65,7 @@ def fetch_series(series_id, start="2018-01-01"):
         for obs in r.get("observations", []) if obs["value"] != "."
     ])
 
+# --- Build Combined DataFrame ---
 df_all = pd.DataFrame()
 df_raw = {}
 for cat in categories:
@@ -77,98 +77,79 @@ for cat in categories:
         df_all = df[["date", cat["name"]]]
     else:
         df_all = pd.merge(df_all, df, on="date", how="inner")
+df_all.sort_values("date", inplace=True)
 
-# --- Recession Forecast Over Time ---
-@st.cache_data
-def compute_forecast_history(df_all, weights):
-    rows = []
-    for i in range(len(df_all)):
-        row = df_all.iloc[i]
-        scores = {
-            "Yield Curve": 0.6 if row["Yield Curve"] < 0 else 0.3,
-            "Unemployment Rate": 0.6 if row["Unemployment Rate"] > 4 else 0.4,
-            "Leading Index": 0.6 if row["Leading Index"] < 0 else 0.4,
-            "Consumer Sentiment": 0.4 if row["Consumer Sentiment"] > 70 else 0.6,
-            "Fed Funds Rate": 0.5 if row["Fed Funds Rate"] > 4 else 0.3,
-            "S&P 500": 0.4 if row["S&P 500"] > 4000 else 0.6
-        }
-        weighted = sum((weights[k] / 100) * scores[k] for k in weights)
-        rows.append({"date": row["date"], "forecast": weighted})
-    return pd.DataFrame(rows)
+# --- Forecast Model ---
+def rule_based_prob(row):
+    scores = {
+        "Yield Curve": 0.6 if row["Yield Curve"] < 0 else 0.3,
+        "Unemployment Rate": 0.6 if row["Unemployment Rate"] > 4 else 0.4,
+        "Leading Index": 0.6 if row["Leading Index"] < 0 else 0.4,
+        "Consumer Sentiment": 0.4 if row["Consumer Sentiment"] > 70 else 0.6,
+        "Fed Funds Rate": 0.5 if row["Fed Funds Rate"] > 4 else 0.3,
+        "S&P 500": 0.4 if row["S&P 500"] > 4000 else 0.6
+    }
+    return sum((weights[k] / 100) * scores[k] for k in weights)
 
-forecast_df = compute_forecast_history(df_all, weights)
-latest_prob = forecast_df["forecast"].iloc[-1]
+df_all["forecast"] = df_all.apply(rule_based_prob, axis=1)
 
-# --- Forecast Output ---
+# --- Display Current Forecast ---
+latest_prob = df_all["forecast"].iloc[-1]
 st.subheader("📊 Recession Probability Forecast")
 st.metric("Current Probability", f"{latest_prob:.1%}")
-st.markdown(f"**Trend over time:**")
 
-# --- Forecast History Line Chart ---
-fig_prob = px.line(forecast_df, x="date", y="forecast", title="Recession Probability Over Time",
-                   labels={"forecast": "Probability"})
+# --- Probability History Line Chart (2yr minimum) ---
+st.markdown("### 📈 Recession Probability Over Time (Past 2+ Years)")
+min_date = df_all["date"].max() - pd.DateOffset(months=24)
+df_recent = df_all[df_all["date"] >= min_date]
+fig = px.line(df_recent, x="date", y="forecast", title="Recession Probability (Trailing 2+ Years)",
+              labels={"forecast": "Recession Probability"})
 for r in RECESSIONS:
-    fig_prob.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.15, line_width=0)
-st.plotly_chart(fig_prob, use_container_width=True)
+    fig.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.15, line_width=0)
+st.plotly_chart(fig, use_container_width=True)
 
-# --- Aggregated Score Chart ---
-scores_latest = {
-    "Yield Curve": 0.6 if df_all.iloc[-1]["Yield Curve"] < 0 else 0.3,
-    "Unemployment Rate": 0.6 if df_all.iloc[-1]["Unemployment Rate"] > 4 else 0.4,
-    "Leading Index": 0.6 if df_all.iloc[-1]["Leading Index"] < 0 else 0.4,
-    "Consumer Sentiment": 0.4 if df_all.iloc[-1]["Consumer Sentiment"] > 70 else 0.6,
-    "Fed Funds Rate": 0.5 if df_all.iloc[-1]["Fed Funds Rate"] > 4 else 0.3,
-    "S&P 500": 0.4 if df_all.iloc[-1]["S&P 500"] > 4000 else 0.6
-}
-st.subheader("📊 Weighted Contribution by Category")
-breakdown_df = pd.DataFrame({
-    "Category": list(scores_latest.keys()),
-    "Score": [scores_latest[k] for k in scores_latest],
-    "Weight": [weights[k] / 100 for k in weights]
-})
-breakdown_df["Weighted Score"] = breakdown_df["Score"] * breakdown_df["Weight"]
-fig_bar = px.bar(breakdown_df, x="Category", y="Weighted Score",
-                 title="Weighted Score by Category",
-                 color="Weighted Score", color_continuous_scale="RdYlGn_r")
-st.plotly_chart(fig_bar, use_container_width=True)
-
-# --- Metric Interpretations ---
+# --- Component Interpretation Section ---
 st.subheader("🔍 Metric Interpretations")
+latest_row = df_all.iloc[-1]
 for cat in categories:
     series = df_raw[cat["name"]]
-    latest_val = series[cat["name"]].iloc[-1]
-    delta = latest_val - series[cat["name"]].iloc[-4]
-    direction = "increasing" if delta > 0 else "decreasing"
-    if cat["name"] == "Yield Curve":
-        note = "Inverted yield curves (below 0%) have preceded every U.S. recession since the 1970s."
-    elif cat["name"] == "Unemployment Rate":
-        note = "Recessions often follow unemployment rates rising more than 0.5% from recent lows."
-    elif cat["name"] == "Leading Index":
-        note = "A negative LEI has consistently preceded recessions since 1960."
-    elif cat["name"] == "Consumer Sentiment":
-        note = "Recessions often occur when sentiment drops below 70."
-    elif cat["name"] == "Fed Funds Rate":
-        note = "High rates can restrain economic activity and slow hiring/investment."
-    elif cat["name"] == "S&P 500":
-        note = "Sharp market declines and volatility often precede downturns."
-    st.markdown(f"**{cat['name']}** ({latest_val:.2f} {cat['unit']}, {direction}): {cat['description']} {note}")
+    current = latest_row[cat["name"]]
+    trend = "increasing" if current > series[cat["name"]].iloc[-4] else "decreasing"
+    baseline = f"(Typical threshold: {70 if 'Sentiment' in cat['name'] else 0})"
+    st.markdown(f"**{cat['name']}** ({current:.2f} {cat['unit']}, {trend}) — {cat['description']} {baseline}")
 
-# --- Line Charts (No colored backgrounds) ---
-st.subheader("📈 Component Trends")
+# --- Aggregated Score Breakdown Chart ---
+st.subheader("📊 Weighted Contribution by Category")
+score_components = []
 for cat in categories:
-    df = df_raw[cat["name"]]
-    fig = px.line(df, x="date", y=cat["name"], title=f"{cat['name']} ({cat['unit']})",
-                  labels={cat["name"]: cat["name"]})
-    for r in RECESSIONS:
-        fig.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.1, line_width=0)
-    st.plotly_chart(fig, use_container_width=True)
+    c = cat["name"]
+    if "forecast" in df_all.columns:
+        raw_score = rule_based_prob(df_all.iloc[-1])
+    raw_score = {
+        "Yield Curve": 0.6 if latest_row["Yield Curve"] < 0 else 0.3,
+        "Unemployment Rate": 0.6 if latest_row["Unemployment Rate"] > 4 else 0.4,
+        "Leading Index": 0.6 if latest_row["Leading Index"] < 0 else 0.4,
+        "Consumer Sentiment": 0.4 if latest_row["Consumer Sentiment"] > 70 else 0.6,
+        "Fed Funds Rate": 0.5 if latest_row["Fed Funds Rate"] > 4 else 0.3,
+        "S&P 500": 0.4 if latest_row["S&P 500"] > 4000 else 0.6
+    }[c]
+    weight_pct = weights[c] / 100
+    score_components.append({
+        "Category": c,
+        "Score": raw_score,
+        "Weight": weight_pct,
+        "Weighted Score": raw_score * weight_pct
+    })
 
-# --- Bottom CSV Download ---
-st.subheader("📥 Downloadable Score Breakdown")
-st.dataframe(breakdown_df.style.format({
-    "Score": "{:.2f}",
-    "Weight": "{:.0%}",
-    "Weighted Score": "{:.2%}"
-}))
-csv = breakdown_df.to_csv(index=False)
-st.download_button("Download Score Breakdown CSV", csv, "recession_score_breakdown.csv")
+df_breakdown = pd.DataFrame(score_components)
+fig_bar = px.bar(df_breakdown, x="Category", y="Weighted Score",
+                 color="Weighted Score", color_continuous_scale="RdYlGn_r",
+                 title="Weighted Score by Category")
+st.plotly_chart(fig_bar, use_container_width=True)
+
+# --- Input Data Preview & Download (Last 24+ Months) ---
+st.subheader("📥 Downloadable Input Data (Last 2+ Years)")
+df_input_preview = df_all[df_all["date"] >= min_date].copy()
+st.dataframe(df_input_preview.tail(24).reset_index(drop=True))
+csv = df_input_preview.to_csv(index=False)
+st.download_button("Download Input Dataset (CSV)", csv, "recession_input_data.csv")
