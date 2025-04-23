@@ -17,13 +17,6 @@ st.title("🇺🇸 US Recession Probability Forecast (Next 12 Months)")
 st.caption(f"📅 Last updated: {datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')}")
 st.markdown("Created by [Alex Shropshire](https://www.linkedin.com/in/alexandershropshire/) • [GitHub](https://github.com/as6140)")
 
-# --- REFRESH ---
-if st.sidebar.button("🔁 Manually Refresh Data"):
-    st.session_state["refresh"] = True
-if st.session_state.get("refresh"):
-    st.session_state["refresh"] = False
-    st.rerun()
-
 # --- FRED Setup ---
 FRED_API_KEY = st.secrets["FRED_API_KEY"]
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
