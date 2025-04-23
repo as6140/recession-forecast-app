@@ -307,6 +307,11 @@ st.plotly_chart(fig_prob, use_container_width=True)
 st.subheader("📊 Indicator Trends & Interpretations")
 for ind in indicators:
     name = ind["name"]
+    
+    # Skip Bank Consensus if no data found
+    if name == "Bank Consensus" and name not in df_raw:
+        continue
+        
     df = df_raw[name].copy()  # Make a copy to avoid modifying original
     
     # Keep original 'value' column for calculations but add named column for display
@@ -319,7 +324,30 @@ for ind in indicators:
     trend_date = df["date"].max() - pd.DateOffset(months=trend_months)
     trend_val = df[df["date"] >= trend_date]['value'].iloc[0]
     
-    # Create trend description using appropriate window
+    # Format values based on unit type
+    if ind["unit"] == "billion $":
+        current_formatted = f"${current_val:,.0f}B"
+        trend_formatted = f"${trend_val:,.0f}B"
+    elif ind["unit"] == "%":
+        current_formatted = f"{current_val:.2f}%"
+        trend_formatted = f"{trend_val:.2f}%"
+    elif ind["unit"] == "claims":
+        current_formatted = f"{current_val:,.0f}"
+        trend_formatted = f"{trend_val:,.0f}"
+    elif ind["unit"] == "index":
+        current_formatted = f"{current_val:.1f}"
+        trend_formatted = f"{trend_val:.1f}"
+    elif ind["unit"] == "points":
+        current_formatted = f"{current_val:,.0f}"
+        trend_formatted = f"{trend_val:,.0f}"
+    elif ind["unit"] == "thousands":
+        current_formatted = f"{current_val:,.0f}K"
+        trend_formatted = f"{trend_val:,.0f}K"
+    else:
+        current_formatted = str(current_val)
+        trend_formatted = str(trend_val)
+    
+    # Create trend description using appropriate window and formatting
     trend_text = ind["trend_desc"](trend_val, current_val)
     
     # Plot full history since 2000
@@ -352,10 +380,10 @@ for ind in indicators:
         yaxis_title=f"{name} ({ind['unit']})"
     )
     
-    # Show the chart and interpretation
+    # Show the chart and interpretation with clean formatting
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(f"""
-    **Current Reading:** {current_val:.2f} {ind['unit']}  
+    **Current Reading:** {current_formatted} {ind['unit']}  
     **Trend Analysis ({ind['trend_window']}):** {trend_text}
     """)
     st.markdown("---")  # Add separator between indicators
