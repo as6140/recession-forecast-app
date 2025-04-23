@@ -24,6 +24,11 @@ This tool combines six key economic indicators to estimate the probability of a 
 # Refresh instruction
 st.sidebar.markdown("---")
 if st.sidebar.button("🔁 Manually Refresh Data"):
+    st.session_state["trigger_rerun"] = True
+
+# Trigger rerun safely
+if st.session_state.get("trigger_rerun"):
+    st.session_state["trigger_rerun"] = False
     st.experimental_rerun()
 
 # Info
