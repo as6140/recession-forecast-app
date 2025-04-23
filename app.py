@@ -31,65 +31,18 @@ RECESSIONS = [("2001-03-01", "2001-11-30"), ("2007-12-01", "2009-06-30"), ("2020
 
 # --- Indicator Definitions ---
 indicators_all = [
-    {"name": "Yield Curve", "series_id": "T10Y3M", "unit": "%", "default_weight": 20,
-     "description": "10Y minus 3M Treasury yields. Inversion signals recession risk.",
-     "trend_window": "1M",  # Treasury yields are forward-looking
-     "trend_desc": lambda old, new: f"{'Inverted' if new < 0 else 'Normal'} yield curve at {new:.2f}%. {'Higher' if new > old else 'Lower'} than {old:.2f}% one month ago."},
-    
-    {"name": "Unemployment Rate", "series_id": "UNRATE", "unit": "%", "default_weight": 15,
-     "description": "Percentage of labor force unemployed.",
-     "trend_window": "3M",  # Labor market trends develop over months
-     "trend_desc": lambda old, new: f"Currently {new:.1f}%, {'up' if new > old else 'down'} from {old:.1f}% three months ago. {'Concerning trend.' if new > old else 'Stable labor market.'}"},
-    
-    {"name": "CFNAI", "series_id": "CFNAI", "unit": "index", "default_weight": 15,
-     "description": "Chicago Fed National Activity Index - broad economic activity measure.",
-     "trend_window": "3M",  # Uses 3-month moving average
-     "trend_desc": lambda old, new: f"At {new:.2f}, {'improved' if new > old else 'deteriorated'} from {old:.2f} three months ago. Values below -0.7 signal recession risk."},
-    
-    {"name": "Jobless Claims", "series_id": "ICSA", "unit": "claims", "default_weight": 12,
-     "description": "Weekly initial unemployment claims.",
-     "trend_window": "1M",  # Weekly data, but look at monthly trend
-     "trend_desc": lambda old, new: f"Currently {new:,.0f} claims, {'up' if new > old else 'down'} from {old:,.0f} a month ago. Levels above 300,000 signal labor market stress."},
-    
-    {"name": "ISM PMI", "series_id": "NAPM", "unit": "index", "default_weight": 10,
-     "description": "Manufacturing sector activity index.",
-     "trend_window": "3M",  # Manufacturing trends develop over quarters
-     "trend_desc": lambda old, new: f"At {new:.1f}, {'improved' if new > old else 'declined'} from {old:.1f} three months ago. Readings below 50 indicate contraction."},
-    
-    {"name": "Consumer Sentiment", "series_id": "UMCSENT", "unit": "index", "default_weight": 8,
-     "description": "University of Michigan Consumer Sentiment Index.",
-     "trend_window": "3M",  # Consumer sentiment trends meaningful over quarters
-     "trend_desc": lambda old, new: f"At {new:.1f}, {'improved' if new > old else 'declined'} from {old:.1f} three months ago. Low readings signal weak consumption outlook."},
-    
-    {"name": "Bond Spread", "series_id": "BAA10Y", "unit": "%", "default_weight": 8,
-     "description": "Corporate bond spread over Treasuries.",
-     "trend_window": "1M",  # Credit spreads react quickly to conditions
-     "trend_desc": lambda old, new: f"Spread at {new:.2f}%, {'widened' if new > old else 'tightened'} from {old:.2f}% a month ago. Widening spreads signal credit stress."},
-    
-    {"name": "Fed Funds Rate", "series_id": "FEDFUNDS", "unit": "%", "default_weight": 7,
-     "description": "Federal Reserve's policy interest rate.",
-     "trend_window": "3M",  # Policy rate changes impact over quarters
-     "trend_desc": lambda old, new: f"Currently at {new:.2f}%, {'up' if new > old else 'down'} from {old:.2f}% three months ago. High rates typically precede recessions."},
-    
-    {"name": "Real PCE", "series_id": "PCEC96", "unit": "billion $", "default_weight": 5,
-     "description": "Real Personal Consumption Expenditures.",
-     "trend_window": "3M",  # Consumption trends develop over quarters
-     "trend_desc": lambda old, new: f"At ${new:,.0f}B, {'grew' if new > old else 'fell'} from ${old:,.0f}B three months ago. Declining consumption often precedes recessions."},
-    
-    {"name": "Housing Starts", "series_id": "HOUST", "unit": "thousands", "default_weight": 0,
-     "description": "New residential construction starts.",
-     "trend_window": "3M",
-     "trend_desc": lambda old, new: f"Currently {new:,.0f}K units, {'up' if new > old else 'down'} from {old:,.0f}K three months ago."},
-    
-    {"name": "S&P 500", "series_id": "SP500", "unit": "points", "default_weight": 0,
-     "description": "Stock market index of large US companies.",
-     "trend_window": "3M",
-     "trend_desc": lambda old, new: f"At {new:,.0f}, {'up' if new > old else 'down'} from {old:,.0f} three months ago."},
-    
-    {"name": "Bank Consensus", "series_id": "BANK_CONSENSUS", "unit": "%", "default_weight": 10,
-     "description": "Average recession probability from major US banks.",
-     "trend_window": "1M",  # Bank forecasts typically updated monthly
-     "trend_desc": lambda old, new: f"Major banks see {new:.1f}% recession probability, {'up' if new > old else 'down'} from {old:.1f}% last month. Based on latest forecasts from JPM, GS, MS, etc."},
+    {"name": "Yield Curve", "series_id": "T10Y3M", "unit": "%", "default_weight": 20},
+    {"name": "Unemployment Rate", "series_id": "UNRATE", "unit": "%", "default_weight": 15},
+    {"name": "CFNAI", "series_id": "CFNAI", "unit": "index", "default_weight": 15},
+    {"name": "Jobless Claims", "series_id": "ICSA", "unit": "claims", "default_weight": 12},
+    {"name": "ISM PMI", "series_id": "IPMAN", "unit": "index", "default_weight": 10},
+    {"name": "Consumer Sentiment", "series_id": "UMCSENT", "unit": "index", "default_weight": 8},
+    {"name": "Bond Spread", "series_id": "BAA10Y", "unit": "%", "default_weight": 8},
+    {"name": "Fed Funds Rate", "series_id": "FEDFUNDS", "unit": "%", "default_weight": 7},
+    {"name": "Real PCE", "series_id": "PCEC96", "unit": "billion $", "default_weight": 5},
+    {"name": "Bank Consensus", "series_id": "BANK_CONSENSUS", "unit": "%", "default_weight": 0},
+    {"name": "Housing Starts", "series_id": "HOUST", "unit": "thousands", "default_weight": 0},
+    {"name": "S&P 500", "series_id": "SP500", "unit": "points", "default_weight": 0}
 ]
 
 # --- Fetch Series ---
@@ -108,7 +61,7 @@ def fetch_series(series_id, start="2000-01-01"):
     except Exception:
         return None
 
-@st.cache_data(ttl=6*3600)  # Cache for 6 hours
+@st.cache_data(ttl=6*3600)
 def fetch_bank_consensus():
     """Fetch and process bank recession probabilities from free news sources."""
     try:
@@ -167,7 +120,10 @@ def fetch_bank_consensus():
         valid_probs = [b['value'] for b in bank_probabilities.values() if b['value'] is not None]
         if not valid_probs:
             st.sidebar.warning("⚠️ No recent bank forecasts found")
-            return None
+            return pd.DataFrame({
+                'date': [datetime.now()],
+                'value': [0.0]
+            })
             
         avg_prob = sum(valid_probs) / len(valid_probs)
         
@@ -199,7 +155,10 @@ def fetch_bank_consensus():
 
     except Exception as e:
         st.sidebar.warning("⚠️ Could not fetch bank consensus data")
-        return None
+        return pd.DataFrame({
+            'date': [datetime.now()],
+            'value': [0.0]
+        })
 
 # --- Load Available Indicators ---
 df_all = pd.DataFrame()
@@ -207,7 +166,13 @@ df_raw = {}
 indicators = []
 weights = {}
 for ind in indicators_all:
-    df = fetch_series(ind["series_id"])
+    if ind["series_id"] == "BANK_CONSENSUS":
+        # Special handling for bank consensus data
+        df = fetch_bank_consensus()
+    else:
+        # Normal FRED API fetch for other indicators
+        df = fetch_series(ind["series_id"])
+        
     if df is not None and "date" in df.columns:
         df.rename(columns={"value": ind["name"]}, inplace=True)
         df_raw[ind["name"]] = df
