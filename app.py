@@ -322,6 +322,10 @@ breakdown = []
 for ind in indicators:
     name = ind["name"]
     if name in latest:  # Add check to ensure column exists
+        # Skip if no raw data available (like Bank Consensus sometimes)
+        if name not in df_raw:
+            continue
+            
         # Get the most recent date for this indicator
         ind_date = df_raw[name]["date"].max().strftime('%Y-%m-%d')
         raw_score = score_indicator(name, latest[name])
