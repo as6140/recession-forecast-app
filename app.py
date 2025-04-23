@@ -201,6 +201,7 @@ df_raw = {}
 indicators = []
 weights = {}
 for ind in indicators_all:
+    name = ind["name"]
     if ind["series_id"] == "BANK_CONSENSUS":
         # Special handling for bank consensus data
         df = fetch_bank_consensus()
@@ -209,8 +210,9 @@ for ind in indicators_all:
         df = fetch_series(ind["series_id"])
         
     if df is not None and "date" in df.columns:
-        df.rename(columns={"value": ind["name"]}, inplace=True)
-        df_raw[ind["name"]] = df
+        # Ensure column name matches indicator name exactly
+        df = df.rename(columns={"value": name})
+        df_raw[name] = df
         indicators.append(ind)
         df_all = df if df_all.empty else pd.merge(df_all, df, on="date", how="inner")
     else:
@@ -324,14 +326,15 @@ latest = df_all.iloc[-1]
 breakdown = []
 for ind in indicators:
     name = ind["name"]
-    raw_score = score_indicator(name, latest[name])
-    wt = weights[name] / 100
-    breakdown.append({
-        "Category": name,
-        "Score": raw_score,
-        "Weight": wt,
-        "Weighted Score": raw_score * wt
-    })
+    if name in latest:  # Add check to ensure column exists
+        raw_score = score_indicator(name, latest[name])
+        wt = weights[name] / 100
+        breakdown.append({
+            "Category": name,
+            "Score": raw_score,
+            "Weight": wt,
+            "Weighted Score": raw_score * wt
+        })
 df_breakdown = pd.DataFrame(breakdown)
 fig_bar = px.bar(df_breakdown, x="Category", y="Weighted Score", color="Weighted Score",
                  color_continuous_scale="RdYlGn_r", title="Current Weighted Score by Category")
