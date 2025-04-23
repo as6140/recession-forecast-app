@@ -5,12 +5,6 @@ import requests
 import plotly.express as px
 from datetime import datetime
 
-# Auto-refresh on load
-st.sidebar.markdown("---")
-refresh = st.sidebar.checkbox("🔄 Refresh data on page load", value=True)
-if refresh:
-    st.experimental_rerun()
-
 # Timestamp
 st.caption(f"📅 Last updated: {datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')} (Local time)")
 
@@ -27,7 +21,12 @@ This tool combines six key economic indicators to estimate the probability of a 
 4. Share custom insights by copying this URL (your settings are retained).
 """)
 
-# Instructions
+# Refresh instruction
+st.sidebar.markdown("---")
+if st.sidebar.button("🔁 Manually Refresh Data"):
+    st.experimental_rerun()
+
+# Info
 st.info("Each slider adjusts the sensitivity of the forecast. Hover over the charts for detailed explanations. Line charts pull data from the Federal Reserve Economic Data (FRED) API. Settings will persist in the URL for easy sharing and reproducibility.")
 
 # Categories
