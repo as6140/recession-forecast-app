@@ -1,174 +1,188 @@
+# app.py (Part 1 of 2+)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
 import plotly.express as px
 from datetime import datetime
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import log_loss
+from lightgbm import LGBMClassifier
 
-# Timestamp
+# --------------------------
+# 🧠 CONFIG
+# --------------------------
+st.set_page_config(page_title="US Recession Probability", layout="wide")
+st.title("🇺🇸 US Recession Probability Forecast (Next 12 Months)")
 st.caption(f"📅 Last updated: {datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')} (Local time)")
 
-# Title
-st.title("US Recession Probability Forecast (Next 12 Months)")
-
-st.markdown("""
-This tool combines six key economic indicators to estimate the probability of a US recession over the next 12 months.
-
-🧭 **Quick Start Guide:**
-1. Adjust threshold sliders in the sidebar to define what *you* consider warning signs.
-2. Hover over any chart to see exact values and units.
-3. Use the download button at the bottom to save the data.
-4. Share custom insights by copying this URL (your settings are retained).
-""")
-
-# Manual Refresh
-st.sidebar.markdown("---")
+# --------------------------
+# 🕹️ Mode Toggles
+# --------------------------
+view_mode = st.sidebar.radio("Choose View Mode", ["Basic Mode", "Advanced Mode"])
+model_type = st.sidebar.radio("Forecast Model", ["Rule-Based", "ML-Based Ensemble"])
 if st.sidebar.button("🔁 Manually Refresh Data"):
-    st.session_state["trigger_rerun"] = True
-if st.session_state.get("trigger_rerun"):
-    st.session_state["trigger_rerun"] = False
+    st.session_state["refresh"] = True
+if st.session_state.get("refresh"):
+    st.session_state["refresh"] = False
     st.experimental_rerun()
 
-# Info box with toggle instructions
-st.info("Each slider below defines what YOU consider risky. Moving sliders **left** makes the model more sensitive to mild signals (higher forecasted risk). Moving **right** makes it stricter (lower forecasted risk unless metrics are extreme).\n\nThese thresholds define when each indicator contributes to recession probability.")
+# --------------------------
+# 📈 Categories & Setup
+# --------------------------
+FRED_API_KEY = st.secrets["FRED_API_KEY"]
+FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
-# Metric definitions
 categories = [
-    {"category": "Yield Curve & Credit", "weight": 0.25, "series_id": "T10Y3M", "unit": "%", "source": "FRED: 10-Year minus 3-Month Treasury Spread",
-     "explanation": "Inverted yield curves often signal future recessions.",
-     "insight": "Currently, the yield curve remains inverted, consistent with prior pre-recessionary environments.",
-     "tooltip": "10Y-3M Spread", "low": -2, "high": 2, "default": 0.0},
-
-    {"category": "Labor Market", "weight": 0.20, "series_id": "UNRATE", "unit": "%", "source": "FRED: US Unemployment Rate",
-     "explanation": "Rising unemployment can be an early recession signal.",
-     "insight": "Unemployment has ticked up slightly, though not yet above recession-warning thresholds.",
-     "tooltip": "Unemployment Rate", "low": 3.0, "high": 6.0, "default": 4.0},
-
-    {"category": "Leading Indicators", "weight": 0.20, "series_id": "USSLIND", "unit": "index", "source": "FRED: Leading Economic Index (Conference Board)",
-     "explanation": "Composite index used to forecast future economic activity.",
-     "insight": "The LEI index has declined for several months, a pattern seen before previous downturns.",
-     "tooltip": "LEI Index", "low": -2.0, "high": 2.0, "default": 0.0},
-
-    {"category": "Consumer & Retail", "weight": 0.15, "series_id": "UMCSENT", "unit": "index", "source": "FRED: University of Michigan Sentiment Index",
-     "explanation": "Consumer sentiment is a driver of consumption patterns.",
-     "insight": "Sentiment remains below long-term averages but has stabilized recently.",
-     "tooltip": "Consumer Sentiment", "low": 50, "high": 100, "default": 70},
-
-    {"category": "Fed Policy & Rates", "weight": 0.10, "series_id": "FEDFUNDS", "unit": "%", "source": "FRED: Effective Federal Funds Rate",
-     "explanation": "Tight monetary policy can slow economic growth.",
-     "insight": "The Fed is holding rates steady, but financial conditions remain tight.",
-     "tooltip": "Fed Funds Rate", "low": 0.0, "high": 8.0, "default": 4.0},
-
-    {"category": "Market Sentiment", "weight": 0.10, "series_id": "SP500", "unit": "points", "source": "FRED: S&P 500 Index",
-     "explanation": "Equity trends reflect forward-looking investor confidence.",
-     "insight": "Stock markets are near highs, though driven largely by tech sector concentration.",
-     "tooltip": "S&P 500", "low": 2000, "high": 6000, "default": 4000}
+    {"category": "Yield Curve", "series_id": "T10Y3M"},
+    {"category": "Unemployment Rate", "series_id": "UNRATE"},
+    {"category": "Leading Index", "series_id": "USSLIND"},
+    {"category": "Consumer Sentiment", "series_id": "UMCSENT"},
+    {"category": "Fed Funds Rate", "series_id": "FEDFUNDS"},
+    {"category": "S&P 500", "series_id": "SP500"},
 ]
 
-recessions = [("2001-03-01", "2001-11-30"), ("2007-12-01", "2009-06-30"), ("2020-02-01", "2020-04-30")]
+def fetch_series(series_id, start="2000-01-01"):
+    url = f"{FRED_BASE}?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&observation_start={start}"
+    r = requests.get(url).json()
+    return pd.DataFrame([
+        {"date": obs["date"], "value": float(obs["value"])}
+        for obs in r.get("observations", []) if obs["value"] != "."
+    ])
 
-def fetch_latest(series_id):
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={st.secrets['FRED_API_KEY']}&file_type=json"
-    try:
-        data = requests.get(url).json()
-        for obs in reversed(data["observations"]):
-            if obs["value"] != ".":
-                return float(obs["value"])
-    except:
-        return None
+# --------------------------
+# 🧠 Sahm Rule
+# --------------------------
+def detect_sahm_trigger(df_unemp):
+    df = df_unemp.copy()
+    df["3mo_avg"] = df["value"].rolling(3).mean()
+    df["12mo_min"] = df["3mo_avg"].rolling(12).min()
+    df["gap"] = df["3mo_avg"] - df["12mo_min"]
+    df["trigger"] = df["gap"] >= 0.5
+    return df
 
-def fetch_series(series_id):
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={st.secrets['FRED_API_KEY']}&file_type=json&observation_start=2000-01-01"
-    try:
-        data = requests.get(url).json()
-        return pd.DataFrame([{"date": obs["date"], "value": float(obs["value"])} for obs in data["observations"] if obs["value"] != "."])
-    except:
-        return pd.DataFrame(columns=["date", "value"])
+# --------------------------
+# 📦 Data Fetching & Feature Engineering
+# --------------------------
+@st.cache_data(show_spinner=True)
+def prepare_data():
+    dfs = {cat["category"]: fetch_series(cat["series_id"]) for cat in categories}
+    for df in dfs.values():
+        df["date"] = pd.to_datetime(df["date"])
+    df_all = dfs["Unemployment Rate"][["date"]].copy()
+    for cat in categories:
+        name = cat["category"]
+        df_all = df_all.merge(dfs[name], on="date", how="left", suffixes=("", f"_{name}"))
+        df_all.rename(columns={"value": name}, inplace=True)
+    df_all["Sahm Rule Trigger"] = detect_sahm_trigger(dfs["Unemployment Rate"])["trigger"].astype(int)
+    df_all.dropna(inplace=True)
+    return df_all
 
-def generate_narrative(prob):
-    if prob > 0.65:
-        return "🔴 Recession risk is high — multiple leading indicators suggest a likely downturn."
-    elif prob > 0.5:
-        return "🟠 Recession risk is elevated — several warning signals are present."
-    elif prob > 0.35:
-        return "🟡 Risk is moderate — economic signals are mixed but stable."
-    else:
-        return "🟢 Recession risk appears low — most indicators remain supportive."
+df_all = prepare_data()
+# --------------------------
+# 🤖 ML Model
+# --------------------------
+def run_ml_model(df):
+    df_model = df.copy()
+    df_model["recession_next"] = df_model["Unemployment Rate"].shift(-3) > df_model["Unemployment Rate"]
+    df_model.dropna(inplace=True)
+    X = df_model[["Yield Curve", "Unemployment Rate", "Leading Index", "Consumer Sentiment", "Fed Funds Rate", "S&P 500", "Sahm Rule Trigger"]]
+    y = df_model["recession_next"].astype(int)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False, test_size=0.2)
+    model = LGBMClassifier(n_estimators=200, learning_rate=0.05, random_state=42)
+    model.fit(X_train, y_train)
+    probs = model.predict_proba(X_test)[-1][1]
+    ci_low = max(0.0, probs - 0.05)
+    ci_high = min(1.0, probs + 0.05)
+    return probs, ci_low, ci_high, model.feature_importances_, X_test.columns
 
-# Sidebar sliders with explanations
-st.sidebar.header("Define Recession Risk Thresholds")
-thresholds = {}
-for cat in categories:
-    thresholds[cat["category"]] = st.sidebar.slider(
-        f"{cat['tooltip']} Threshold",
-        cat["low"], cat["high"], cat["default"],
-        help=f"Left = more sensitive (risky), Right = more lenient (less risky)"
-    )
+# --------------------------
+# 🧮 Rule-Based Model
+# --------------------------
+def rule_based_forecast(df):
+    latest = df.iloc[-1]
+    weights = {
+        "Yield Curve": 0.25,
+        "Unemployment Rate": 0.10,
+        "Leading Index": 0.20,
+        "Consumer Sentiment": 0.15,
+        "Fed Funds Rate": 0.10,
+        "S&P 500": 0.10,
+        "Sahm Rule Trigger": 0.10
+    }
+    scores = {
+        "Yield Curve": 0.6 if latest["Yield Curve"] < 0 else 0.3,
+        "Unemployment Rate": 0.6 if latest["Unemployment Rate"] > 4.0 else 0.4,
+        "Leading Index": 0.6 if latest["Leading Index"] < 0 else 0.4,
+        "Consumer Sentiment": 0.4 if latest["Consumer Sentiment"] > 70 else 0.6,
+        "Fed Funds Rate": 0.5 if latest["Fed Funds Rate"] > 4.0 else 0.3,
+        "S&P 500": 0.4 if latest["S&P 500"] > 4000 else 0.6,
+        "Sahm Rule Trigger": 0.7 if latest["Sahm Rule Trigger"] == 1 else 0.3
+    }
+    weighted_score = sum(weights[k] * scores[k] for k in weights)
+    return weighted_score, max(0, weighted_score - 0.05), min(1, weighted_score + 0.05), scores, weights
 
-# Score calculation
-scores = {}
-for cat in categories:
-    val = fetch_latest(cat["series_id"])
-    threshold = thresholds[cat["category"]]
-    if cat["category"] == "Yield Curve & Credit":
-        scores[cat["category"]] = 0.6 if val < threshold else 0.3
-    elif cat["category"] == "Labor Market":
-        scores[cat["category"]] = 0.6 if val > threshold else 0.4
-    elif cat["category"] == "Leading Indicators":
-        scores[cat["category"]] = 0.6 if val < threshold else 0.4
-    elif cat["category"] == "Consumer & Retail":
-        scores[cat["category"]] = 0.4 if val > threshold else 0.6
-    elif cat["category"] == "Fed Policy & Rates":
-        scores[cat["category"]] = 0.5 if val > threshold else 0.3
-    elif cat["category"] == "Market Sentiment":
-        scores[cat["category"]] = 0.4 if val > threshold else 0.6
+# --------------------------
+# 🔮 Generate Forecast
+# --------------------------
+if model_type == "ML-Based Ensemble":
+    forecast, ci_low, ci_high, importances, features = run_ml_model(df_all)
+    st.subheader("ML-Based Ensemble Forecast")
+else:
+    forecast, ci_low, ci_high, scores, weights = rule_based_forecast(df_all)
+    st.subheader("Rule-Based Forecast")
 
-# Forecast table
-df = pd.DataFrame(categories)
-df["score"] = df["category"].map(scores)
-df["weighted_score"] = df["weight"] * df["score"]
-total_prob = df["weighted_score"].sum()
+st.metric("Recession Probability (Next 12 Months)", f"{forecast:.1%}")
+st.markdown(f"📉 **Confidence Interval**: {ci_low:.1%} – {ci_high:.1%}")
 
-st.subheader("Forecast Breakdown")
-st.dataframe(df[["category", "weight", "score", "weighted_score"]].style.format({"weight": "{:.0%}", "score": "{:.0%}", "weighted_score": "{:.1%}"}))
+# --------------------------
+# 📊 Breakdown Table
+# --------------------------
+if model_type == "Rule-Based" and view_mode == "Advanced Mode":
+    st.subheader("Rule-Based Category Breakdown")
+    score_table = pd.DataFrame({
+        "Category": list(scores.keys()),
+        "Score": [f"{v:.1%}" for v in scores.values()],
+        "Weight": [f"{weights[k]:.0%}" for k in scores],
+        "Weighted Score": [f"{scores[k] * weights[k]:.1%}" for k in scores]
+    })
+    st.dataframe(score_table)
 
-st.subheader("Total Forecast Probability")
-st.metric("Recession Probability (Next 12 Months)", f"{total_prob:.1%}")
-st.markdown(generate_narrative(total_prob))
+# --------------------------
+# 📈 Real GDP
+# --------------------------
+if view_mode == "Advanced Mode":
+    st.subheader("Real GDP Growth")
+    gdp_df = fetch_series("GDPC1")
+    gdp_df["date"] = pd.to_datetime(gdp_df["date"])
+    gdp_df["YoY %"] = gdp_df["value"].pct_change(4) * 100
+    gdp_df["QoQ %"] = gdp_df["value"].pct_change() * 100
+    fig = px.line(gdp_df, x="date", y=["YoY %", "QoQ %"], title="US Real GDP Growth (YoY & QoQ)")
+    for r in recessions:
+        fig.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.1, line_width=0)
+    st.plotly_chart(fig, use_container_width=True)
 
-# Bar Chart
-st.subheader("Economic Indicators Overview")
-fig_bar = px.bar(
-    pd.DataFrame({"Indicator": list(scores), "Score": list(scores.values())}),
-    x="Indicator", y="Score", color="Score", color_continuous_scale="RdYlGn_r"
-)
-st.plotly_chart(fig_bar, use_container_width=True)
+# --------------------------
+# 📉 Sahm Rule Chart
+# --------------------------
+if view_mode == "Advanced Mode":
+    st.subheader("Sahm Rule Detection")
+    sahm_df = detect_sahm_trigger(fetch_series("UNRATE"))
+    fig = px.line(sahm_df, x="date", y="3mo_avg", title="3-Month Avg Unemployment Rate")
+    fig.add_scatter(x=sahm_df["date"], y=sahm_df["12mo_min"] + 0.5, mode="lines", name="Trigger Line", line=dict(dash="dot"))
+    for r in recessions:
+        fig.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.1, line_width=0)
+    st.plotly_chart(fig, use_container_width=True)
 
-# Time Series with R/Y/G banding
-st.subheader("Historical Trends Since 2000")
-for cat in categories:
-    ts = fetch_series(cat["series_id"])
-    if not ts.empty:
-        ts["date"] = pd.to_datetime(ts["date"])
-        fig = px.line(ts, x="date", y="value", title=f"{cat['tooltip']} ({cat['unit']})", labels={"value": cat["unit"]})
-        for r0, r1 in recessions:
-            fig.add_vrect(x0=r0, x1=r1, fillcolor="gray", opacity=0.2, line_width=0)
-        # Add green/yellow/red thresholds
-        y_min, y_max = ts["value"].min(), ts["value"].max()
-        mid = thresholds[cat["category"]]
-        spread = (y_max - y_min) * 0.05
-        fig.add_hrect(y0=y_min, y1=mid - spread, fillcolor="green", opacity=0.05, line_width=0)
-        fig.add_hrect(y0=mid - spread, y1=mid + spread, fillcolor="yellow", opacity=0.05, line_width=0)
-        fig.add_hrect(y0=mid + spread, y1=y_max, fillcolor="red", opacity=0.05, line_width=0)
-        fig.update_layout(hoverlabel=dict(bgcolor="white", font_color="black"))
-        fig.update_traces(mode="lines", hovertemplate=f"{cat['tooltip']}: %{{y:.2f}}")
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption(f"{cat['explanation']}\n\n**Insight:** {cat['insight']}\n\n_Data Source: {cat['source']}_")
+# --------------------------
+# 🔽 Download
+# --------------------------
+csv = df_all.to_csv(index=False)
+st.download_button("Download Full Economic Dataset", csv, "recession_data.csv")
 
-# Download button
-csv = df.to_csv(index=False)
-st.download_button("Download Forecast Data (CSV)", csv, "recession_forecast.csv")
-
+# --------------------------
 # Footer
+# --------------------------
 st.markdown("---")
-st.markdown("Built with Streamlit | Powered by FRED | Share this URL to preserve your settings.")
+st.markdown("Built with Streamlit • Powered by FRED • Toggle views and models above ☝️")
