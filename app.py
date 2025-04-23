@@ -133,7 +133,8 @@ if model_type == "Rule-Based" and view_mode == "Advanced Mode":
     st.dataframe(breakdown)
 
 # --- Aggregated Score Chart ---
-if view_mode == "Advanced Mode":
+if model_type == "Rule-Based" and view_mode == "Advanced Mode":
+
     st.subheader("Aggregated Indicator Scores")
     fig_bar = px.bar(breakdown, x="Category", y=[float(s.strip('%'))/100 for s in breakdown["Weighted"]],
                      labels={"y": "Weighted Score"}, color=breakdown["Weighted"],
