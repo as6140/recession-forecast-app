@@ -301,8 +301,10 @@ df_all["forecast"] = df_all.apply(forecast_score, axis=1)
 
 # --- Headline Probability ---
 latest_prob = df_all["forecast"].iloc[-1]
+latest_date = df_all["date"].iloc[-1]
 st.subheader("📊 Recession Probability Forecast")
 st.metric("Current Probability", f"{latest_prob:.1%}")
+st.caption(f"Month-to-date as of {latest_date.strftime('%Y-%m-%d')}")
 
 # --- Forecast Chart (2 years) ---
 st.markdown("### 📈 Recession Probability Over Time")
@@ -320,26 +322,45 @@ breakdown = []
 for ind in indicators:
     name = ind["name"]
     if name in latest:  # Add check to ensure column exists
+        # Get the most recent date for this indicator
+        ind_date = df_raw[name]["date"].max().strftime('%Y-%m-%d')
         raw_score = score_indicator(name, latest[name])
         wt = weights[name] / 100
         breakdown.append({
-            "Category": name,
+            "Category": f"{name} - {ind_date}",  # Add date to category label
             "Score": raw_score,
             "Weight": wt,
-            "Weighted Score": raw_score * wt
+            "Weighted Score": raw_score * wt,
+            "Raw Name": name  # Keep original name for sorting
         })
+
 df_breakdown = pd.DataFrame(breakdown)
+# Sort by original weights to maintain consistent order
+df_breakdown["Sort Weight"] = df_breakdown["Raw Name"].map({ind["name"]: i for i, ind in enumerate(indicators)})
+df_breakdown = df_breakdown.sort_values("Sort Weight")
+
 fig_breakdown = px.bar(df_breakdown,
-                      x="Category", y="Weighted Score",
+                      x="Category", 
+                      y="Weighted Score",
+                      color="Weighted Score",  # Add color coding
+                      color_continuous_scale="RdYlGn_r",  # Red-Yellow-Green color scale (reversed)
                       title="Contribution to Overall Probability",
                       labels={"Weighted Score": "Contribution to Probability"},
                       hover_data=["Score", "Weight"])
+
 fig_breakdown.update_traces(hovertemplate=(
     "<b>%{x}</b><br>" +
     "Raw Score: %{customdata[0]:.1%}<br>" +
     "Weight: %{customdata[1]:.0%}<br>" +
     "Contribution: %{y:.1%}"
 ))
+
+# Rotate x-axis labels for better readability
+fig_breakdown.update_layout(
+    xaxis_tickangle=-45,
+    margin=dict(b=100)  # Add bottom margin for rotated labels
+)
+
 st.plotly_chart(fig_breakdown, use_container_width=True)
 
 # --- Component Charts + Interpretations ---
@@ -368,8 +389,8 @@ for ind in indicators:
         current_formatted = f"${current_val:,.0f}B"
         trend_formatted = f"${trend_val:,.0f}B"
     elif ind["unit"] == "%":
-        current_formatted = f"{current_val:.2f}%"
-        trend_formatted = f"{trend_val:.2f}%"
+        current_formatted = f"{current_val:.2f}"
+        trend_formatted = f"{trend_val:.2f}"
     elif ind["unit"] == "claims":
         current_formatted = f"{current_val:,.0f}"
         trend_formatted = f"{trend_val:,.0f}"
@@ -387,7 +408,11 @@ for ind in indicators:
         trend_formatted = str(trend_val)
     
     # Create trend description using appropriate window and formatting
-    trend_text = ind["trend_desc"](trend_val, current_val)
+    if ind["unit"] == "billion $":
+        trend_text = f"At ${current_val:,.0f}B, {'grew' if current_val > trend_val else 'fell'} from ${trend_val:,.0f}B three months ago. " + \
+                     f"{'Declining real consumption often precedes broader economic contraction.' if current_val < trend_val else 'Growing consumption supports continued economic expansion.'}"
+    else:
+        trend_text = ind["trend_desc"](trend_val, current_val)
     
     # Plot full history since 2000
     fig = px.line(df, x="date", y="value", title=f"{name} ({ind['unit']}) - Historical Trend Since 2000")
