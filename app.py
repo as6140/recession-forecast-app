@@ -307,20 +307,23 @@ st.plotly_chart(fig_prob, use_container_width=True)
 st.subheader("📊 Indicator Trends & Interpretations")
 for ind in indicators:
     name = ind["name"]
-    df = df_raw[name]
-    current_val = df[name].iloc[-1]
+    df = df_raw[name].copy()  # Make a copy to avoid modifying original
+    
+    # Keep original 'value' column for calculations but add named column for display
+    df[name] = df['value']
+    current_val = df['value'].iloc[-1]
     
     # Get historical value for trend analysis
     window_map = {"1M": 1, "3M": 3, "6M": 6}
     trend_months = window_map[ind["trend_window"]]
     trend_date = df["date"].max() - pd.DateOffset(months=trend_months)
-    trend_val = df[df["date"] >= trend_date][name].iloc[0]
+    trend_val = df[df["date"] >= trend_date]['value'].iloc[0]
     
     # Create trend description using appropriate window
     trend_text = ind["trend_desc"](trend_val, current_val)
     
     # Plot full history since 2000
-    fig = px.line(df, x="date", y=name, title=f"{name} ({ind['unit']}) - Historical Trend Since 2000")
+    fig = px.line(df, x="date", y="value", title=f"{name} ({ind['unit']}) - Historical Trend Since 2000")
     
     # Add recession shading
     for r in RECESSIONS:
@@ -342,6 +345,11 @@ for ind in indicators:
             "<b>Date</b>: %{x|%Y-%m-%d}<br>" +
             f"<b>{name}</b>: %{{y:.2f}} {ind['unit']}<br>"
         )
+    )
+    
+    # Update y-axis title
+    fig.update_layout(
+        yaxis_title=f"{name} ({ind['unit']})"
     )
     
     # Show the chart and interpretation
