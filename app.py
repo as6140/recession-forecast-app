@@ -25,7 +25,7 @@ FRED_API_KEY = st.secrets["FRED_API_KEY"]
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 RECESSIONS = [("2001-03-01", "2001-11-30"), ("2007-12-01", "2009-06-30"), ("2020-02-01", "2020-04-30")]
 
-# --- Indicator Definitions (total = 100%) ---
+# --- Indicator Definitions ---
 indicators_all = [
     {"name": "Yield Curve", "series_id": "T10Y3M", "unit": "%", "default_weight": 15,
      "description": "10Y minus 3M Treasury yields. Inversion = recession signal."},
@@ -65,45 +65,39 @@ def fetch_series(series_id, start="2000-01-01"):
         r = requests.get(url).json()
         data = [{"date": obs["date"], "value": float(obs["value"])}
                 for obs in r.get("observations", []) if obs["value"] != "."]
-        if len(data) == 0:
+        if not data:
             return None
         df = pd.DataFrame(data)
         df["date"] = pd.to_datetime(df["date"])
         return df
-    except Exception as e:
+    except Exception:
         return None
 
-# --- Load All Available Indicators ---
+# --- Load Available Indicators ---
 df_all = pd.DataFrame()
 df_raw = {}
 indicators = []
-
+weights = {}
 for ind in indicators_all:
     df = fetch_series(ind["series_id"])
     if df is not None and "date" in df.columns:
         df.rename(columns={"value": ind["name"]}, inplace=True)
         df_raw[ind["name"]] = df
-        indicators.append(ind)  # include only if fetched successfully
+        indicators.append(ind)
         df_all = df if df_all.empty else pd.merge(df_all, df, on="date", how="inner")
     else:
-        st.sidebar.warning(f"⚠️ Skipped: {ind['name']} — no data found")
+        st.sidebar.warning(f"⚠️ Skipped: {ind['name']} — no data")
 
-df_all.sort_values("date", inplace=True)
-
-# --- Weight Inputs ---
-st.sidebar.header("🧮 Custom Weights (Total = 100%)")
-weights = {}
-total_weight = 0
+# --- Rebalance weights to sum to 100% ---
+total_default = sum(ind["default_weight"] for ind in indicators)
 for ind in indicators:
-    w = st.sidebar.number_input(f"{ind['name']} (%)", min_value=0, max_value=100, value=ind["default_weight"], step=1)
-    weights[ind["name"]] = w
-    total_weight += w
-
-if total_weight != 100:
-    st.sidebar.error(f"Total weight must equal 100%. Currently: {total_weight}%")
+    rebased = round(ind["default_weight"] * 100 / total_default)
+    weights[ind["name"]] = st.sidebar.number_input(f"{ind['name']} (%)", min_value=0, max_value=100, value=rebased, step=1)
+if sum(weights.values()) != 100:
+    st.sidebar.error(f"❌ Weights must total 100%. Current: {sum(weights.values())}%")
     st.stop()
 
-# --- Score Logic ---
+# --- Score Function ---
 def score_indicator(name, value):
     if name == "Yield Curve": return 0.6 if value < 0 else 0.3
     if name == "Unemployment Rate": return 0.6 if value > 4 else 0.4
@@ -122,57 +116,64 @@ def score_indicator(name, value):
     return 0.4
 
 def forecast_score(row):
-    return sum((weights[ind["name"]] / 100) * score_indicator(ind["name"], row[ind["name"]]) for ind in indicators)
+    score = 0
+    for ind in indicators:
+        name = ind["name"]
+        if name in row and weights[name] > 0:
+            score += (weights[name] / 100) * score_indicator(name, row[name])
+    return score
 
 df_all["forecast"] = df_all.apply(forecast_score, axis=1)
 
-# --- Headline Forecast ---
+# --- Headline Probability ---
 latest_prob = df_all["forecast"].iloc[-1]
 st.subheader("📊 Recession Probability Forecast")
 st.metric("Current Probability", f"{latest_prob:.1%}")
 
-# --- Forecast Chart ---
+# --- Forecast Chart (2 years) ---
 st.markdown("### 📈 Recession Probability Over Time")
 df_recent = df_all[df_all["date"] >= (df_all["date"].max() - pd.DateOffset(months=24))]
-fig_prob = px.line(df_recent, x="date", y="forecast", labels={"forecast": "Probability"}, title="Forecast (Last 2+ Years)")
+fig_prob = px.line(df_recent, x="date", y="forecast", title="Forecast (Last 2+ Years)",
+                   labels={"forecast": "Probability"})
 for r in RECESSIONS:
     fig_prob.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.1, line_width=0)
 st.plotly_chart(fig_prob, use_container_width=True)
 
-# --- Component Charts + Interpretation ---
+# --- Component Charts + Interpretations ---
 st.subheader("📊 Indicator Trends & Interpretations")
 for ind in indicators:
     df = df_raw[ind["name"]]
     val = df[ind["name"]].iloc[-1]
-    prev = df[ind["name"]].iloc[-4]
-    trend = "increasing" if val > prev else "decreasing"
+    trend = "↑" if val > df[ind["name"]].iloc[-4] else "↓"
     fig = px.line(df, x="date", y=ind["name"], title=f"{ind['name']} ({ind['unit']})")
     for r in RECESSIONS:
         fig.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.1, line_width=0)
+    fig.update_traces(hovertemplate=f"%{{x}}<br><b>{ind['name']}</b>: %{{y:.2f}}")
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown(f"**{ind['name']}** ({val:.2f} {ind['unit']}, {trend}): {ind['description']}")
+    st.markdown(f"**{ind['name']}** ({val:.2f} {ind['unit']} {trend}): {ind['description']}")
 
-# --- Aggregated Score Breakdown ---
+# --- Breakdown Chart ---
 st.subheader("📊 Contribution by Category")
-components = []
+latest = df_all.iloc[-1]
+breakdown = []
 for ind in indicators:
-    score = score_indicator(ind["name"], df_all.iloc[-1][ind["name"]])
-    wt = weights[ind["name"]] / 100
-    components.append({
-        "Category": ind["name"],
-        "Score": score,
+    name = ind["name"]
+    raw_score = score_indicator(name, latest[name])
+    wt = weights[name] / 100
+    breakdown.append({
+        "Category": name,
+        "Score": raw_score,
         "Weight": wt,
-        "Weighted Score": score * wt
+        "Weighted Score": raw_score * wt
     })
-df_breakdown = pd.DataFrame(components)
+df_breakdown = pd.DataFrame(breakdown)
 fig_bar = px.bar(df_breakdown, x="Category", y="Weighted Score", color="Weighted Score",
-                 color_continuous_scale="RdYlGn_r", title="Weighted Risk Score by Category")
+                 color_continuous_scale="RdYlGn_r", title="Current Weighted Score by Category")
 st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- CSV Export ---
-st.subheader("📥 Download Forecast Dataset")
-export = df_all[df_all["date"] >= (df_all["date"].max() - pd.DateOffset(months=24))].copy()
-export["Forecast"] = export["forecast"]
-st.dataframe(export.tail(12).reset_index(drop=True))
-csv = export.to_csv(index=False)
-st.download_button("Download CSV", csv, "recession_forecast_data.csv")
+# --- CSV Preview + Download ---
+st.subheader("📥 Forecast Data (2 Years)")
+df_export = df_all[df_all["date"] >= (df_all["date"].max() - pd.DateOffset(months=24))].copy()
+df_export["Forecast"] = df_export["forecast"]
+st.dataframe(df_export.tail(12).reset_index(drop=True))
+st.download_button("Download CSV", df_export.to_csv(index=False), "recession_forecast_data.csv")
