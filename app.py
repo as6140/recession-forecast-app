@@ -384,35 +384,24 @@ for ind in indicators:
     trend_date = df["date"].max() - pd.DateOffset(months=trend_months)
     trend_val = df[df["date"] >= trend_date]['value'].iloc[0]
     
-    # Format values based on unit type
-    if ind["unit"] == "billion $":
-        current_formatted = f"${current_val:,.0f}B"
-        trend_formatted = f"${trend_val:,.0f}B"
-    elif ind["unit"] == "%":
-        current_formatted = f"{current_val:.2f}"
-        trend_formatted = f"{trend_val:.2f}"
-    elif ind["unit"] == "claims":
-        current_formatted = f"{current_val:,.0f}"
-        trend_formatted = f"{trend_val:,.0f}"
-    elif ind["unit"] == "index":
-        current_formatted = f"{current_val:.1f}"
-        trend_formatted = f"{trend_val:.1f}"
-    elif ind["unit"] == "points":
-        current_formatted = f"{current_val:,.0f}"
-        trend_formatted = f"{trend_val:,.0f}"
-    elif ind["unit"] == "thousands":
-        current_formatted = f"{current_val:,.0f}K"
-        trend_formatted = f"{trend_val:,.0f}K"
-    else:
-        current_formatted = str(current_val)
-        trend_formatted = str(trend_val)
-    
     # Create trend description using appropriate window and formatting
+    trend_text = ind["trend_desc"](trend_val, current_val)
+    
+    # Format current reading based on unit type
     if ind["unit"] == "billion $":
-        trend_text = f"At ${current_val:,.0f}B, {'grew' if current_val > trend_val else 'fell'} from ${trend_val:,.0f}B three months ago. " + \
-                     f"{'Declining real consumption often precedes broader economic contraction.' if current_val < trend_val else 'Growing consumption supports continued economic expansion.'}"
+        current_reading = f"${current_val:,.0f}B"
+    elif ind["unit"] == "%":
+        current_reading = f"{current_val:.2f}"  # Remove % since it's in unit
+    elif ind["unit"] == "claims":
+        current_reading = f"{current_val:,.0f}"
+    elif ind["unit"] == "index":
+        current_reading = f"{current_val:.1f}"
+    elif ind["unit"] == "points":
+        current_reading = f"{current_val:,.0f}"
+    elif ind["unit"] == "thousands":
+        current_reading = f"{current_val:,.0f}K"
     else:
-        trend_text = ind["trend_desc"](trend_val, current_val)
+        current_reading = str(current_val)
     
     # Plot full history since 2000
     fig = px.line(df, x="date", y="value", title=f"{name} ({ind['unit']}) - Historical Trend Since 2000")
@@ -447,7 +436,7 @@ for ind in indicators:
     # Show the chart and interpretation with clean formatting
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(f"""
-    **Current Reading:** {current_formatted} {ind['unit']}  
+    **Current Reading:** {current_reading} {ind['unit']}  
     **Trend Analysis ({ind['trend_window']}):** {trend_text}
     """)
     st.markdown("---")  # Add separator between indicators
