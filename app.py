@@ -108,7 +108,7 @@ def fetch_series(series_id, start="2000-01-01"):
     except Exception:
         return None
 
-@st.cache_data(ttl=6*3600)
+@st.cache_data(ttl=6*3600, max_entries=1)
 def fetch_bank_consensus():
     """Fetch and process bank recession probabilities from free news sources."""
     try:
@@ -260,6 +260,9 @@ if sum(weights.values()) != 100:
 
 # --- Score Function ---
 def score_indicator(name, value):
+    if value is None:
+        return 0.01  # Return minimum probability if no data
+        
     score = 0.01  # Minimum probability
     if name == "Yield Curve": score = 0.6 if value < 0 else 0.3
     if name == "Unemployment Rate": score = 0.6 if value > 4 else 0.4
@@ -276,7 +279,10 @@ def score_indicator(name, value):
     if name == "Bond Spread": score = 0.6 if value > 2.5 else 0.3
     if name == "Financial Conditions": score = 0.6 if value > 0 else 0.4
     if name == "Bank Consensus": 
-        return value / 100  # Convert percentage to probability score
+        try:
+            return min(max(value / 100, 0.01), 0.99)  # Convert percentage to probability score, bounded
+        except (TypeError, ValueError):
+            return 0.01  # Return minimum probability if conversion fails
     return min(max(score, 0.01), 0.99)  # Ensure between 1% and 99%
 
 def forecast_score(row):
