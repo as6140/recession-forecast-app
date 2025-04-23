@@ -22,7 +22,7 @@ if st.sidebar.button("🔁 Manually Refresh Data"):
     st.session_state["refresh"] = True
 if st.session_state.get("refresh"):
     st.session_state["refresh"] = False
-    st.experimental_rerun()
+    st.rerun()
 
 # --- FRED Setup ---
 FRED_API_KEY = st.secrets["FRED_API_KEY"]
