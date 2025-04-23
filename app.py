@@ -31,18 +31,53 @@ RECESSIONS = [("2001-03-01", "2001-11-30"), ("2007-12-01", "2009-06-30"), ("2020
 
 # --- Indicator Definitions ---
 indicators_all = [
-    {"name": "Yield Curve", "series_id": "T10Y3M", "unit": "%", "default_weight": 20},
-    {"name": "Unemployment Rate", "series_id": "UNRATE", "unit": "%", "default_weight": 15},
-    {"name": "CFNAI", "series_id": "CFNAI", "unit": "index", "default_weight": 15},
-    {"name": "Jobless Claims", "series_id": "ICSA", "unit": "claims", "default_weight": 12},
-    {"name": "ISM PMI", "series_id": "IPMAN", "unit": "index", "default_weight": 10},
-    {"name": "Consumer Sentiment", "series_id": "UMCSENT", "unit": "index", "default_weight": 8},
-    {"name": "Bond Spread", "series_id": "BAA10Y", "unit": "%", "default_weight": 8},
-    {"name": "Fed Funds Rate", "series_id": "FEDFUNDS", "unit": "%", "default_weight": 7},
-    {"name": "Real PCE", "series_id": "PCEC96", "unit": "billion $", "default_weight": 5},
-    {"name": "Bank Consensus", "series_id": "BANK_CONSENSUS", "unit": "%", "default_weight": 0},
-    {"name": "Housing Starts", "series_id": "HOUST", "unit": "thousands", "default_weight": 0},
-    {"name": "S&P 500", "series_id": "SP500", "unit": "points", "default_weight": 0}
+    {"name": "Yield Curve", "series_id": "T10Y3M", "unit": "%", "default_weight": 20,
+     "trend_window": "1M",
+     "trend_desc": lambda old, new: f"{'Inverted' if new < 0 else 'Normal'} yield curve at {new:.2f}%. {'Higher' if new > old else 'Lower'} than {old:.2f}% one month ago."},
+    
+    {"name": "Unemployment Rate", "series_id": "UNRATE", "unit": "%", "default_weight": 15,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"Currently {new:.1f}%, {'up' if new > old else 'down'} from {old:.1f}% three months ago."},
+    
+    {"name": "CFNAI", "series_id": "CFNAI", "unit": "index", "default_weight": 15,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"At {new:.2f}, {'improved' if new > old else 'deteriorated'} from {old:.2f} three months ago."},
+    
+    {"name": "Jobless Claims", "series_id": "ICSA", "unit": "claims", "default_weight": 12,
+     "trend_window": "1M",
+     "trend_desc": lambda old, new: f"Currently {new:,.0f} claims, {'up' if new > old else 'down'} from {old:,.0f} a month ago."},
+    
+    {"name": "ISM PMI", "series_id": "IPMAN", "unit": "index", "default_weight": 10,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"At {new:.1f}, {'improved' if new > old else 'declined'} from {old:.1f} three months ago."},
+    
+    {"name": "Consumer Sentiment", "series_id": "UMCSENT", "unit": "index", "default_weight": 8,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"At {new:.1f}, {'improved' if new > old else 'declined'} from {old:.1f} three months ago."},
+    
+    {"name": "Bond Spread", "series_id": "BAA10Y", "unit": "%", "default_weight": 8,
+     "trend_window": "1M",
+     "trend_desc": lambda old, new: f"Spread at {new:.2f}%, {'widened' if new > old else 'tightened'} from {old:.2f}% a month ago."},
+    
+    {"name": "Fed Funds Rate", "series_id": "FEDFUNDS", "unit": "%", "default_weight": 7,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"Currently at {new:.2f}%, {'up' if new > old else 'down'} from {old:.2f}% three months ago."},
+    
+    {"name": "Real PCE", "series_id": "PCEC96", "unit": "billion $", "default_weight": 5,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"At ${new:,.0f}B, {'grew' if new > old else 'fell'} from ${old:,.0f}B three months ago."},
+    
+    {"name": "Bank Consensus", "series_id": "BANK_CONSENSUS", "unit": "%", "default_weight": 0,
+     "trend_window": "1M",
+     "trend_desc": lambda old, new: f"Major banks see {new:.1f}% recession probability, {'up' if new > old else 'down'} from {old:.1f}% last month."},
+    
+    {"name": "Housing Starts", "series_id": "HOUST", "unit": "thousands", "default_weight": 0,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"Currently {new:,.0f}K units, {'up' if new > old else 'down'} from {old:,.0f}K three months ago."},
+    
+    {"name": "S&P 500", "series_id": "SP500", "unit": "points", "default_weight": 0,
+     "trend_window": "3M",
+     "trend_desc": lambda old, new: f"At {new:,.0f}, {'up' if new > old else 'down'} from {old:,.0f} three months ago."}
 ]
 
 # --- Fetch Series ---
@@ -241,22 +276,47 @@ for ind in indicators:
     df = df_raw[name]
     current_val = df[name].iloc[-1]
     
-    # Get historical value based on trend window
+    # Get historical value for trend analysis
     window_map = {"1M": 1, "3M": 3, "6M": 6}
-    months = window_map[ind["trend_window"]]
-    historical_date = df["date"].max() - pd.DateOffset(months=months)
-    historical_val = df[df["date"] >= historical_date][name].iloc[0]
+    trend_months = window_map[ind["trend_window"]]
+    trend_date = df["date"].max() - pd.DateOffset(months=trend_months)
+    trend_val = df[df["date"] >= trend_date][name].iloc[0]
     
-    # Create trend description
-    trend_text = ind["trend_desc"](historical_val, current_val)
+    # Create trend description using appropriate window
+    trend_text = ind["trend_desc"](trend_val, current_val)
     
-    # Plot chart
-    fig = px.line(df, x="date", y=name, title=f"{name} ({ind['unit']})")
+    # Plot full history since 2000
+    fig = px.line(df, x="date", y=name, title=f"{name} ({ind['unit']}) - Historical Trend Since 2000")
+    
+    # Add recession shading
     for r in RECESSIONS:
         fig.add_vrect(x0=r[0], x1=r[1], fillcolor="gray", opacity=0.1, line_width=0)
-    fig.update_traces(hovertemplate=f"%{{x}}<br><b>{name}</b>: %{{y:.2f}}")
+    
+    # Highlight trend window
+    fig.add_vrect(
+        x0=trend_date,
+        x1=df["date"].max(),
+        fillcolor="rgba(255, 255, 0, 0.1)",  # Light yellow
+        line_width=0,
+        annotation_text="Trend Window",
+        annotation_position="top left"
+    )
+    
+    # Improve hover info
+    fig.update_traces(
+        hovertemplate=(
+            "<b>Date</b>: %{x|%Y-%m-%d}<br>" +
+            f"<b>{name}</b>: %{{y:.2f}} {ind['unit']}<br>"
+        )
+    )
+    
+    # Show the chart and interpretation
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown(f"**{trend_text}**")
+    st.markdown(f"""
+    **Current Reading:** {current_val:.2f} {ind['unit']}  
+    **Trend Analysis ({ind['trend_window']}):** {trend_text}
+    """)
+    st.markdown("---")  # Add separator between indicators
 
 # --- Breakdown Chart ---
 st.subheader("📊 Contribution by Category")
