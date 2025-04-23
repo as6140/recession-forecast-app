@@ -219,7 +219,8 @@ def get_latest_value(df, target_date):
 end_date = pd.Timestamp.now().normalize().replace(day=1) - pd.DateOffset(days=1)  # Last day of previous month
 start_date = end_date - pd.DateOffset(months=24)
 
-df_all = pd.DataFrame(pd.date_range(start=start_date, end=end_date, freq='M'), columns=['date'])
+df_all = pd.DataFrame(pd.date_range(start=start_date, end=end_date, freq='ME'), columns=['date'])  # Changed from 'M' to 'ME'
+df_raw = {}  # Initialize df_raw dictionary
 indicators = []
 weights = {}
 
